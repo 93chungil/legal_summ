@@ -1,16 +1,19 @@
-import xml.etree.ElementTree as ET
 import os
 from collections import defaultdict
 from nltk.corpus import stopwords
-from bs4 import BeautifulSoup
+import pandas as pd
 import re
+from sklearn.model_selection import train_test_split
+
+from keras.preprocessing.text import Tokenizer
+from keras.preprocessing.sequence import pad_sequences
 
 corpus_dir = os.path.join(os.path.dirname(os.getcwd()), 'corpus')
 full_text_dir = os.path.join(corpus_dir, 'fulltext')
 full_text_files = os.listdir(full_text_dir)
 
 
-contraction_mapping = {"ain't": "is not", "aren't": "are not","can't": "cannot", "'cause": "because", "could've": "could have", "couldn't": "could not",
+contractions = {"ain't": "am not", "aren't": "are not","can't": "cannot", "'cause": "because", "could've": "could have", "couldn't": "could not",
                            "didn't": "did not", "doesn't": "does not", "don't": "do not", "hadn't": "had not", "hasn't": "has not", "haven't": "have not",
                            "he'd": "he would","he'll": "he will", "he's": "he is", "how'd": "how did", "how'd'y": "how do you", "how'll": "how will", "how's": "how is",
                            "I'd": "I would", "I'd've": "I would have", "I'll": "I will", "I'll've": "I will have","I'm": "I am", "I've": "I have", "i'd": "i would",
@@ -34,41 +37,37 @@ contraction_mapping = {"ain't": "is not", "aren't": "are not","can't": "cannot",
                            "you'd": "you would", "you'd've": "you would have", "you'll": "you will", "you'll've": "you will have",
                            "you're": "you are", "you've": "you have"}
 
-stop_words = set(stopwords.words('english')) 
-def text_cleaner(text):
-    newString = text.lower()
-    newString = BeautifulSoup(newString, "lxml").text
-    newString = re.sub(r'\([^)]*\)', '', newString)
-    newString = re.sub('"','', newString)
-    newString = ' '.join([contraction_mapping[t] if t in contraction_mapping else t for t in newString.split(" ")])    
-    newString = re.sub(r"'s\b","",newString)
-    newString = re.sub("[^a-zA-Z]", " ", newString) 
-    tokens = [w for w in newString.split() if not w in stop_words]
-    long_words=[]
-    for i in tokens:
-        if len(i)>=3:                  #removing short word
-            long_words.append(i)   
-    return (" ".join(long_words)).strip()
-
-def summary_cleaner(text):
-    newString = re.sub('"','', text)
-    newString = ' '.join([contraction_mapping[t] if t in contraction_mapping else t for t in newString.split(" ")])    
-    newString = re.sub(r"'s\b","",newString)
-    newString = re.sub("[^a-zA-Z]", " ", newString)
-    newString = newString.lower()
-    tokens=newString.split()
-    newString=''
-    for i in tokens:
-        if len(i)>1:                                 
-            newString=newString+i+' '  
-    return newString
+def clean_text(text, remove_stopwords=True):
+    text = text.lower()
+    text = text.split()
+    tmp = []
+    for word in text:
+        if word in contractions:
+            tmp.append(contractions[word])
+        else:
+            tmp.append(word)
+    text = ' '.join(tmp)
+    
+    text = re.sub(r'https?:\/\/.*[\r\n]*', '', text, flags=re.MULTILINE)
+    text = re.sub(r'\<a href', ' ', text)
+    text = re.sub(r'&amp;', '', text) 
+    text = re.sub(r'[_"\-;%()|+&=*%.,!?:#$@\[\]/]', ' ', text)
+    text = re.sub(r'<br />', ' ', text)
+    text = re.sub(r'\'', ' ', text)
+    
+    if remove_stopwords:
+        text = text.split()
+        stops = set(stopwords.words('english'))
+        text = [w for w in text if w not in stops]
+        text = ' '.join(text)
+        
+    return text
 
 def parse_fulltext(ft):
     '''
         Parses fulltext file to dictionary with values as lists.
         catchphrase: no period, sentence: period when available.
     '''
-    ft = full_text_files[0]
     ftf = open(os.path.join(full_text_dir, ft), 'r')
     lines = ftf.readlines()
     ftf.close()
@@ -106,12 +105,94 @@ for ft in full_text_files:
     print(ft)
     all_files[ft] = parse_fulltext(ft)
     all_files[ft]['text'] = ' '.join(all_files[ft]['sentence'])
-    all_files[ft]['summary'] = ' '.join(all_files[ft]['catchphrase'])
-    all_files[ft]['cleaned_text'] = text_cleaner(all_files[ft]['text'])
-    all_files[ft]['cleaned_summary'] = summary_cleaner(all_files[ft]['summary'])
+    all_files[ft]['summary'] = '. '.join(all_files[ft]['catchphrase'])
+    all_files[ft]['cleaned_text'] = clean_text(all_files[ft]['text'])
+    all_files[ft]['cleaned_summary'] = clean_text(all_files[ft]['summary'], remove_stopwords=False)
+
+all_files_df = pd.DataFrame(all_files).transpose()
+all_files_df['cleaned_summary'] = all_files_df['cleaned_summary'].apply(lambda x: '<sostok>' + ' ' + x + ' ' + '<eostok>')
+
+all_files_df['text_len'] = all_files_df['cleaned_text'].str.split(' ').str.len()
+all_files_df['summary_len'] = all_files_df['cleaned_summary'].str.split(' ').str.len()
+
+import matplotlib.pyplot as plt
+all_files_df.hist(bins=100)
+print(all_files_df['text_len'].quantile(.95))
+
+trimmed_df = all_files_df[all_files_df['text_len']<10000]
+trimmed_df.hist(bins=100)
+trimmed_df.to_csv(os.path.join(corpus_dir, 'fulltext.csv'))
 
 
-import json
+maxlen_text = 10000
+maxlen_summ = 700
 
-with open(os.path.join(corpus_dir, 'fulltext.json'), 'w') as f:
-    json.dump(all_files, f)
+train_x, test_val_x, train_y, test_val_y = train_test_split(trimmed_df['cleaned_text'], trimmed_df['cleaned_summary'], test_size=0.2, random_state=0)
+val_x, test_x, val_y, test_y = train_test_split(test_val_x, test_val_y, test_size=0.5, random_state=123)
+del all_files, all_files_df, trimmed_df
+
+
+t_tokenizer = Tokenizer()
+t_tokenizer.fit_on_texts(list(train_x))
+
+thresh = 4
+count = 0
+total_count = 0
+frequency = 0
+total_frequency = 0
+
+for key, value in t_tokenizer.word_counts.items():
+    total_count += 1
+    total_frequency += value
+    if value < thresh:
+        count += 1
+        frequency += value
+
+print('% of rare words in vocabulary: ', (count/total_count)*100.0)
+print('Total Coverage of rare words: ', (frequency/total_frequency)*100.0)
+t_max_features = total_count - count
+print('Text Vocab: ', t_max_features)
+
+
+s_tokenizer = Tokenizer()
+s_tokenizer.fit_on_texts(list(train_y))
+
+thresh = 6
+count = 0
+total_count = 0
+frequency = 0
+total_frequency = 0
+
+for key, value in s_tokenizer.word_counts.items():
+    total_count += 1
+    total_frequency += value
+    if value < thresh:
+        count += 1
+        frequency += value
+        
+print('% of rare words in vocabulary: ', (count/total_count)*100.0)
+print('Total Coverage of rare words: ', (frequency/total_frequency)*100.0)
+s_max_features = total_count-count
+print('Summary Vocab: ', s_max_features)
+
+t_tokenizer = Tokenizer(num_words=t_max_features)
+t_tokenizer.fit_on_texts(list(train_x))
+train_x = t_tokenizer.texts_to_sequences(train_x)
+val_x = t_tokenizer.texts_to_sequences(val_x)
+
+train_x = pad_sequences(train_x, maxlen=maxlen_text, padding='post')
+val_x = pad_sequences(val_x, maxlen=maxlen_text, padding='post')
+
+s_tokenizer = Tokenizer(num_words=s_max_features)
+s_tokenizer.fit_on_texts(list(train_y))
+train_y = s_tokenizer.texts_to_sequences(train_y)
+val_y = s_tokenizer.texts_to_sequences(val_y)
+
+train_y = pad_sequences(train_y, maxlen=maxlen_summ, padding='post')
+val_y = pad_sequences(val_y, maxlen=maxlen_summ, padding='post')
+
+print("Training Sequence", train_x.shape)
+print('Target Values Shape', train_y.shape)
+print('Test Sequence', val_x.shape)
+print('Target Test Shape', val_y.shape)
+
