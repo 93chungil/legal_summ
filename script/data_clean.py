@@ -3,10 +3,7 @@ from collections import defaultdict
 from nltk.corpus import stopwords
 import pandas as pd
 import re
-from sklearn.model_selection import train_test_split
 
-from keras.preprocessing.text import Tokenizer
-from keras.preprocessing.sequence import pad_sequences
 
 corpus_dir = os.path.join(os.path.dirname(os.getcwd()), 'corpus')
 full_text_dir = os.path.join(corpus_dir, 'fulltext')
@@ -122,77 +119,3 @@ print(all_files_df['text_len'].quantile(.95))
 trimmed_df = all_files_df[all_files_df['text_len']<10000]
 trimmed_df.hist(bins=100)
 trimmed_df.to_csv(os.path.join(corpus_dir, 'fulltext.csv'))
-
-
-maxlen_text = 10000
-maxlen_summ = 700
-
-train_x, test_val_x, train_y, test_val_y = train_test_split(trimmed_df['cleaned_text'], trimmed_df['cleaned_summary'], test_size=0.2, random_state=0)
-val_x, test_x, val_y, test_y = train_test_split(test_val_x, test_val_y, test_size=0.5, random_state=123)
-del all_files, all_files_df, trimmed_df
-
-
-t_tokenizer = Tokenizer()
-t_tokenizer.fit_on_texts(list(train_x))
-
-thresh = 4
-count = 0
-total_count = 0
-frequency = 0
-total_frequency = 0
-
-for key, value in t_tokenizer.word_counts.items():
-    total_count += 1
-    total_frequency += value
-    if value < thresh:
-        count += 1
-        frequency += value
-
-print('% of rare words in vocabulary: ', (count/total_count)*100.0)
-print('Total Coverage of rare words: ', (frequency/total_frequency)*100.0)
-t_max_features = total_count - count
-print('Text Vocab: ', t_max_features)
-
-
-s_tokenizer = Tokenizer()
-s_tokenizer.fit_on_texts(list(train_y))
-
-thresh = 6
-count = 0
-total_count = 0
-frequency = 0
-total_frequency = 0
-
-for key, value in s_tokenizer.word_counts.items():
-    total_count += 1
-    total_frequency += value
-    if value < thresh:
-        count += 1
-        frequency += value
-        
-print('% of rare words in vocabulary: ', (count/total_count)*100.0)
-print('Total Coverage of rare words: ', (frequency/total_frequency)*100.0)
-s_max_features = total_count-count
-print('Summary Vocab: ', s_max_features)
-
-t_tokenizer = Tokenizer(num_words=t_max_features)
-t_tokenizer.fit_on_texts(list(train_x))
-train_x = t_tokenizer.texts_to_sequences(train_x)
-val_x = t_tokenizer.texts_to_sequences(val_x)
-
-train_x = pad_sequences(train_x, maxlen=maxlen_text, padding='post')
-val_x = pad_sequences(val_x, maxlen=maxlen_text, padding='post')
-
-s_tokenizer = Tokenizer(num_words=s_max_features)
-s_tokenizer.fit_on_texts(list(train_y))
-train_y = s_tokenizer.texts_to_sequences(train_y)
-val_y = s_tokenizer.texts_to_sequences(val_y)
-
-train_y = pad_sequences(train_y, maxlen=maxlen_summ, padding='post')
-val_y = pad_sequences(val_y, maxlen=maxlen_summ, padding='post')
-
-print("Training Sequence", train_x.shape)
-print('Target Values Shape', train_y.shape)
-print('Test Sequence', val_x.shape)
-print('Target Test Shape', val_y.shape)
-
