@@ -1,0 +1,6 @@
+nltk
+pandas
+numpy
+tensorflow
+scikit-learn
+rouge
