@@ -3,7 +3,6 @@ import sys
 import numpy as np  
 import pandas as pd 
 from sklearn.model_selection import train_test_split
-import tensorflow as tf
 
 from keras.preprocessing.text import Tokenizer
 from keras.utils import pad_sequences
@@ -206,7 +205,7 @@ dec_c_state_r = Input(shape=(lstm_output_size))
 # since we are using bi - directional LSTM's we will get 
 # two hidden states and two cell states
 
-dec_hidden_inp = tf.keras.layers.Input(shape=(maxlen_text, lstm_output_size * 2))
+dec_hidden_inp = Input(shape=(maxlen_text, lstm_output_size * 2))
 
 # Get the embeddings of the decoder sequence
 dec_emb2 = dec_emb_layer(decoder_inputs)
