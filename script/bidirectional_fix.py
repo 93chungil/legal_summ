@@ -6,7 +6,7 @@ from sklearn.model_selection import train_test_split
 import tensorflow as tf
 
 from keras.preprocessing.text import Tokenizer
-from keras.preprocessing.sequence import pad_sequences
+from keras.utils import pad_sequences
 from tensorflow.keras.layers import Input, Bidirectional, LSTM, Embedding, Dense, TimeDistributed, Conv1D, MaxPooling1D, Concatenate
 from tensorflow.keras.models import Model, load_model
 from tensorflow.keras.callbacks import EarlyStopping
@@ -19,7 +19,7 @@ def embedding_map(embedding_type):
     elif embedding_type == 'law2vec':
         return 'Law2Vec.200d.txt', 200
 
-embedding_type = 'glove'
+embedding_type = 'law2vec'
 embedding_file, embed_dim = embedding_map(embedding_type)
 epochs = 10
 
@@ -157,17 +157,25 @@ encoder_states1 = [forward_state_h1, forward_state_c1, backward_state_h1, backwa
 # Set up the decoder, using `encoder_states` as initial state.
 decoder_inputs = Input(shape=(None,))
 
+dec_emb_layer = Embedding(s_max_features, embed_dim, 
+                                weights=[s_embed], trainable=False)
+decoder_embedding = dec_emb_layer(decoder_inputs)
 
-decoder_inputs = Input(shape=(None,))
-decoder_embedding = Embedding(s_max_features, embed_dim, 
-                                weights=[s_embed], trainable=False)(decoder_inputs)
-decoder_lstm = LSTM(lstm_output_size*2, return_state=True, return_sequences=True)
-decoder_outputs, _, _ = decoder_lstm(decoder_embedding, initial_state=[state_h, state_c])
+decoder_bi_lstm = Bidirectional(LSTM(lstm_output_size, 
+                                  return_sequences=True, 
+                                  return_state=True,
+                                  dropout=0.4,
+                                  recurrent_dropout=0.2),
+                             merge_mode="concat")
+decoder_outputs, decoder_fwd_state_h1, decoder_fwd_state_c1, decoder_back_state_h1, decoder_back_state_c1 = decoder_bi_lstm(decoder_embedding,initial_state=encoder_states1)
+decoder_states = [decoder_fwd_state_h1, decoder_fwd_state_c1, decoder_back_state_h1, decoder_back_state_c1]
 
-outputs = TimeDistributed(Dense(s_max_features, activation='softmax'))(decoder_outputs)
+#dense layer
+decoder_dense = TimeDistributed(Dense(s_max_features, activation='softmax'))
+outputs = decoder_dense(decoder_outputs)
 model = Model([encoder_inputs, decoder_inputs], outputs)
 
-model.summary()
+model.summary() 
 
 model.compile(optimizer='rmsprop', loss='sparse_categorical_crossentropy')
 early_stop = EarlyStopping(monitor='val_loss', mode='min', verbose=1, patience=2)
@@ -180,22 +188,41 @@ model.fit([train_x, train_y[:, :-1]],
             validation_data=([val_x, val_y[:, :-1]], 
             val_y.reshape(val_y.shape[0], val_y.shape[1], 1)[:, 1:]))
 
-model.save(f'./{embedding_type}_model_bidirectional')
+model.save(f'./{embedding_type}_model_bidirectional_fix')
 
-model = load_model('./glove_model')
+# Encode the input sequence to get the feature vector
+encoder_model = Model(inputs=encoder_inputs,outputs=encoder_states1)
 
-enc_model = Model(inputs=encoder_inputs, outputs=[forward_h, forward_c, backward_h, backward_c])
+# Decoder setup
+# Below tensors will hold the states of the previous time step
+dec_h_state_f = Input(shape=(lstm_output_size))
+dec_h_state_r = Input(shape=(lstm_output_size))
 
-dec_init_state_h = Input(shape=(lstm_output_size*2, ))
-dec_init_state_c = Input(shape=(lstm_output_size*2, ))
+dec_c_state_f = Input(shape=(lstm_output_size))
+dec_c_state_r = Input(shape=(lstm_output_size))
 
-dec_out, dec_h, dec_c = decoder_lstm(decoder_embedding, initial_state=[dec_init_state_h, dec_init_state_c])
 
-dec_final = TimeDistributed(Dense(s_max_features, activation='softmax'))(dec_out)
-dec_model = Model([decoder_inputs]+[dec_init_state_h, dec_init_state_c], [dec_final]+[dec_h, dec_c])
+# Create the hidden input layer with twice the latent dimension,
+# since we are using bi - directional LSTM's we will get 
+# two hidden states and two cell states
+
+dec_hidden_inp = tf.keras.layers.Input(shape=(maxlen_text, lstm_output_size * 2))
+
+# Get the embeddings of the decoder sequence
+dec_emb2 = dec_emb_layer(decoder_inputs)
+# To predict the next word in the sequence, set the initial states to the states from the previous time step
+decoder_outputs2, decoder_fwd_state_h2, decoder_fwd_state_c2, decoder_back_state_h2, decoder_back_state_c2 = decoder_bi_lstm(dec_emb2, initial_state=decoder_states)
+decoder_states2 = [decoder_fwd_state_h2, decoder_fwd_state_c2, decoder_back_state_h2, decoder_back_state_c2]
+
+# A dense softmax layer to generate prob dist. over the target vocabulary
+decoder_outputs2 = decoder_dense(decoder_outputs2) 
+
+# Final decoder model
+decoder_model = Model([decoder_inputs] + [dec_hidden_inp, dec_h_state_f, dec_h_state_r, dec_c_state_f, dec_c_state_r],
+                              [decoder_outputs2] + [decoder_states2])
 
 def generate_summary(input_seq):
-    f_h, f_c, b_h, b_c = enc_model.predict(input_seq)
+    f_h, f_c, b_h, b_c = encoder_model.predict(input_seq)
     
     next_token = np.zeros((1, 1))
     next_token[0, 0] = s_tokenizer.word_index['sostok']
@@ -207,7 +234,7 @@ def generate_summary(input_seq):
     while not stop:
         if count > 100:
             break
-        decoder_out, state_h, state_c = dec_model.predict([next_token]+[tf.concat([f_h,b_h],-1), tf.concat([f_c,b_c],-1)])
+        decoder_out, d_f_h, d_f_c, d_b_h, d_b_c = decoder_model.predict([next_token]+[f_h, f_c, b_h, b_c])
         token_idx = np.argmax(decoder_out[0, -1, :])
         
         if token_idx == s_tokenizer.word_index['eostok']:
@@ -218,7 +245,7 @@ def generate_summary(input_seq):
         
         next_token = np.zeros((1, 1))
         next_token[0, 0] = token_idx
-        h, c = state_h, state_c
+        f_h, f_c, b_h, b_c = d_f_h, d_f_c, d_b_h, d_b_c
         count += 1
         
     return output_seq
