@@ -5,7 +5,7 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 
 from keras.preprocessing.text import Tokenizer
-from keras.utils import pad_sequences
+from keras.preprocessing.sequence import pad_sequences
 from tensorflow.keras.layers import Input, Bidirectional, LSTM, Embedding, Dense, TimeDistributed, Conv1D, MaxPooling1D, Concatenate
 from tensorflow.keras.models import Model, load_model
 from tensorflow.keras.callbacks import EarlyStopping
