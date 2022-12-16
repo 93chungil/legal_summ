@@ -40,7 +40,7 @@ del trimmed_df
 
 og_test_x= test_x
 og_test_y = test_y
-
+# START: COPIED FROM https://blog.paperspace.com/introduction-to-seq2seq-models/
 t_tokenizer = Tokenizer()
 t_tokenizer.fit_on_texts(list(train_x))
 
@@ -108,7 +108,7 @@ print("Training Sequence", train_x.shape)
 print('Target Values Shape', train_y.shape)
 print('Test Sequence', val_x.shape)
 print('Target Test Shape', val_y.shape)
-
+# END: COPIED FROM https://blog.paperspace.com/introduction-to-seq2seq-models/
 embedding_index = {}
 with open(f'../embeddings/{embedding_file}', 'r', encoding='utf-8') as f:
     for line in f:
@@ -129,6 +129,8 @@ for word, i in s_tokenizer.word_index.items():
     if i < s_max_features and vec is not None:
         s_embed[i] = vec
 
+
+# START: COPIED FROM https://blog.paperspace.com/implement-seq2seq-for-text-summarization-keras/
 
 filters = 64
 kernel_size = 5
@@ -211,6 +213,8 @@ def generate_summary(input_seq):
         count += 1
         
     return output_seq
+
+# END: COPIED FROM https://blog.paperspace.com/implement-seq2seq-for-text-summarization-keras/
 
 hyps = []
 with open(f'./{embedding_type}_result.csv', 'w') as f:

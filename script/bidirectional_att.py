@@ -6,7 +6,7 @@ from sklearn.model_selection import train_test_split
 
 from keras.preprocessing.text import Tokenizer
 from keras.preprocessing.sequence import pad_sequences
-from tensorflow.keras.layers import Input, Concatenate, Attention, LSTM, Embedding, Dense, TimeDistributed, Conv1D, MaxPooling1D
+from tensorflow.keras.layers import Input, Bidirectional, Concatenate, Attention, LSTM, Embedding, Dense, TimeDistributed, Conv1D, MaxPooling1D
 from tensorflow.keras.models import Model
 from tensorflow.keras.callbacks import EarlyStopping
 import csv
@@ -19,7 +19,7 @@ def embedding_map(embedding_type):
     elif embedding_type == 'law2vec':
         return 'Law2Vec.200d.txt', 200
 
-embedding_type = 'glove'
+embedding_type = 'law2vec'
 embedding_file, embed_dim = embedding_map(embedding_type)
 epochs = 10
 
@@ -42,6 +42,7 @@ del trimmed_df
 og_test_x= test_x
 og_test_y = test_y
 
+
 t_tokenizer = Tokenizer()
 t_tokenizer.fit_on_texts(list(train_x))
 
@@ -63,6 +64,7 @@ print('Total Coverage of rare words: ', (frequency/total_frequency)*100.0)
 t_max_features = total_count - count
 print('Text Vocab: ', t_max_features)
 
+# START: COPIED FROM https://blog.paperspace.com/introduction-to-seq2seq-models/
 
 s_tokenizer = Tokenizer()
 s_tokenizer.fit_on_texts(list(train_y))
@@ -109,6 +111,7 @@ print("Training Sequence", train_x.shape)
 print('Target Values Shape', train_y.shape)
 print('Test Sequence', val_x.shape)
 print('Target Test Shape', val_y.shape)
+# END: COPIED FROM https://blog.paperspace.com/introduction-to-seq2seq-models/
 
 embedding_index = {}
 with open(f'../embeddings/{embedding_file}', 'r', encoding='utf-8') as f:
@@ -131,6 +134,9 @@ for word, i in s_tokenizer.word_index.items():
         s_embed[i] = vec
 
 
+# Defining Model. 
+
+# START: COPIED FROM https://blog.paperspace.com/implement-seq2seq-for-text-summarization-keras/
 filters = 64
 kernel_size = 5
 pool_size = 4
@@ -252,7 +258,7 @@ def generate_summary(input_seq):
         count += 1
         
     return output_seq
-
+# END: COPIED FROM https://blog.paperspace.com/implement-seq2seq-for-text-summarization-keras/
 hyps = []
 with open(f'./{embedding_type}_bidirectional_att_result.csv', 'w') as f:
     writer = csv.writer(f)

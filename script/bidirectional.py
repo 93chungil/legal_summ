@@ -61,8 +61,7 @@ print('% of rare words in vocabulary: ', (count/total_count)*100.0)
 print('Total Coverage of rare words: ', (frequency/total_frequency)*100.0)
 t_max_features = total_count - count
 print('Text Vocab: ', t_max_features)
-
-
+# START: COPIED FROM https://blog.paperspace.com/introduction-to-seq2seq-models/
 s_tokenizer = Tokenizer()
 s_tokenizer.fit_on_texts(list(train_y))
 
@@ -103,7 +102,7 @@ test_y = s_tokenizer.texts_to_sequences(test_y)
 train_y = pad_sequences(train_y, maxlen=maxlen_summ, padding='post')
 val_y = pad_sequences(val_y, maxlen=maxlen_summ, padding='post')
 test_y = pad_sequences(test_y, maxlen=maxlen_summ, padding='post')
-
+# END: COPIED FROM https://blog.paperspace.com/introduction-to-seq2seq-models/
 print("Training Sequence", train_x.shape)
 print('Target Values Shape', train_y.shape)
 print('Test Sequence', val_x.shape)
@@ -129,7 +128,7 @@ for word, i in s_tokenizer.word_index.items():
     if i < s_max_features and vec is not None:
         s_embed[i] = vec
 
-
+# START: COPIED FROM https://blog.paperspace.com/implement-seq2seq-for-text-summarization-keras/
 filters = 64
 kernel_size = 5
 pool_size = 4
@@ -248,7 +247,7 @@ def generate_summary(input_seq):
         count += 1
         
     return output_seq
-
+# END: COPIED FROM https://blog.paperspace.com/implement-seq2seq-for-text-summarization-keras/
 hyps = []
 with open(f'./{embedding_type}_bidirectional_result.csv', 'w') as f:
     writer = csv.writer(f)
