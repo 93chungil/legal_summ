@@ -7,7 +7,7 @@ from sklearn.model_selection import train_test_split
 from keras.preprocessing.text import Tokenizer
 from keras.preprocessing.sequence import pad_sequences
 from tensorflow.keras.layers import Input, LSTM, Embedding, Dense, TimeDistributed, Conv1D, MaxPooling1D
-from tensorflow.keras.models import Model
+from tensorflow.keras.models import Model, load_model
 from tensorflow.keras.callbacks import EarlyStopping
 import csv
 from rouge import Rouge
@@ -18,9 +18,9 @@ def embedding_map(embedding_type):
     elif embedding_type == 'law2vec':
         return 'Law2Vec.200d.txt', 200
 
-embedding_type = sys.argv[0]
+embedding_type = 'law2vec'
 embedding_file, embed_dim = embedding_map(embedding_type)
-epochs = sys.argv[1]
+epochs = 10
 
 
 print("Embedding type: " + embedding_type)
@@ -171,6 +171,8 @@ model.fit([train_x, train_y[:, :-1]],
 
 model.save(f'./{embedding_type}_model')
 
+model = k
+
 enc_model = Model(inputs=encoder_inputs, outputs=[state_h, state_c])
 
 dec_init_state_h = Input(shape=(lstm_output_size, ))
@@ -217,7 +219,7 @@ with open(f'./{embedding_type}_result.csv', 'w') as f:
     for i in range(len(test_x)):
         our_summ = generate_summary(test_x[i].reshape(1, maxlen_text))
         hyps.append(our_summ)
-        writer.writerow([og_test_x[i], og_test_y[i], our_summ])
+        writer.writerow([og_test_x.iloc[i], og_test_y.iloc[i], our_summ])
 
 rouge = Rouge()
 rouge.get_scores(hyps, og_test_y, avg=True, ignore_empty=True)

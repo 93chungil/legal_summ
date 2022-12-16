@@ -144,21 +144,37 @@ encoder_cnn = Conv1D(filters,
                     activation='relu',
                     strides=1)(encoder_embedding)
 encoder_maxpool = MaxPooling1D(pool_size=pool_size)(encoder_cnn)
-encoder_lstm = Bidirectional(LSTM(lstm_output_size, return_state=True))
-encoder_outputs, forward_h, forward_c, backward_h, backward_c = encoder_lstm(encoder_maxpool)
-state_h = Concatenate()([forward_h, backward_h])
-state_c = Concatenate()([forward_c, backward_c])
+encoder_bi_lstm1 = Bidirectional(LSTM(lstm_output_size,
+                                   return_sequences=True,
+                                   return_state=True,
+                                   dropout=0.4,
+                                   recurrent_dropout=0.4), 
+                                 merge_mode="concat")
+encoder_output1, forward_state_h1, forward_state_c1, backward_state_h1, backward_state_c1 = encoder_bi_lstm1(encoder_maxpool)
+encoder_states1 = [forward_state_h1, forward_state_c1, backward_state_h1, backward_state_c1]
 
+# Set up the decoder, using `encoder_states` as initial state.
 decoder_inputs = Input(shape=(None,))
-decoder_embedding = Embedding(s_max_features, embed_dim, 
-                                weights=[s_embed], trainable=False)(decoder_inputs)
-decoder_lstm = LSTM(lstm_output_size*2, return_state=True, return_sequences=True)
-decoder_outputs, _, _ = decoder_lstm(decoder_embedding, initial_state=[state_h, state_c])
 
-outputs = TimeDistributed(Dense(s_max_features, activation='softmax'))(decoder_outputs)
+dec_emb_layer = Embedding(s_max_features, embed_dim, 
+                                weights=[s_embed], trainable=False)
+decoder_embedding = dec_emb_layer(decoder_inputs)
+
+decoder_bi_lstm = Bidirectional(LSTM(lstm_output_size, 
+                                  return_sequences=True, 
+                                  return_state=True,
+                                  dropout=0.4,
+                                  recurrent_dropout=0.2),
+                             merge_mode="concat")
+decoder_outputs, decoder_fwd_state_h1, decoder_fwd_state_c1, decoder_back_state_h1, decoder_back_state_c1 = decoder_bi_lstm(decoder_embedding,initial_state=encoder_states1)
+decoder_states = [decoder_fwd_state_h1, decoder_fwd_state_c1, decoder_back_state_h1, decoder_back_state_c1]
+
+#dense layer
+decoder_dense = TimeDistributed(Dense(s_max_features, activation='softmax'))
+outputs = decoder_dense(decoder_outputs)
 model = Model([encoder_inputs, decoder_inputs], outputs)
 
-model.summary()
+model.summary() 
 
 model.compile(optimizer='rmsprop', loss='sparse_categorical_crossentropy')
 early_stop = EarlyStopping(monitor='val_loss', mode='min', verbose=1, patience=2)
@@ -173,20 +189,39 @@ model.fit([train_x, train_y[:, :-1]],
 
 model.save(f'./{embedding_type}_model_bidirectional')
 
-model = load_model('./glove_model')
+# Encode the input sequence to get the feature vector
+encoder_model = Model(inputs=encoder_inputs,outputs=encoder_states1)
 
-enc_model = Model(inputs=encoder_inputs, outputs=[state_h, state_c])
+# Decoder setup
+# Below tensors will hold the states of the previous time step
+dec_h_state_f = Input(shape=(lstm_output_size))
+dec_h_state_r = Input(shape=(lstm_output_size))
 
-dec_init_state_h = Input(shape=(lstm_output_size, ))
-dec_init_state_c = Input(shape=(lstm_output_size, ))
+dec_c_state_f = Input(shape=(lstm_output_size))
+dec_c_state_r = Input(shape=(lstm_output_size))
 
-dec_out, dec_h, dec_c = decoder_lstm(decoder_embedding, initial_state=[dec_init_state_h, dec_init_state_c])
 
-dec_final = TimeDistributed(Dense(s_max_features, activation='softmax'))(dec_out)
-dec_model = Model([decoder_inputs]+[dec_init_state_h, dec_init_state_c], [dec_final]+[dec_h, dec_c])
+# Create the hidden input layer with twice the latent dimension,
+# since we are using bi - directional LSTM's we will get 
+# two hidden states and two cell states
+
+dec_hidden_inp = Input(shape=(maxlen_text, lstm_output_size * 2))
+
+# Get the embeddings of the decoder sequence
+dec_emb2 = dec_emb_layer(decoder_inputs)
+# To predict the next word in the sequence, set the initial states to the states from the previous time step
+decoder_outputs2, decoder_fwd_state_h2, decoder_fwd_state_c2, decoder_back_state_h2, decoder_back_state_c2 = decoder_bi_lstm(dec_emb2, initial_state=decoder_states)
+decoder_states2 = [decoder_fwd_state_h2, decoder_fwd_state_c2, decoder_back_state_h2, decoder_back_state_c2]
+
+# A dense softmax layer to generate prob dist. over the target vocabulary
+decoder_outputs2 = decoder_dense(decoder_outputs2) 
+
+# Final decoder model
+decoder_model = Model([decoder_inputs] + [dec_hidden_inp, dec_h_state_f, dec_h_state_r, dec_c_state_f, dec_c_state_r],
+                              [decoder_outputs2] + [decoder_states2])
 
 def generate_summary(input_seq):
-    h, c = enc_model.predict(input_seq)
+    f_h, f_c, b_h, b_c = encoder_model.predict(input_seq)
     
     next_token = np.zeros((1, 1))
     next_token[0, 0] = s_tokenizer.word_index['sostok']
@@ -198,7 +233,7 @@ def generate_summary(input_seq):
     while not stop:
         if count > 100:
             break
-        decoder_out, state_h, state_c = dec_model.predict([next_token]+[h, c])
+        decoder_out, d_f_h, d_f_c, d_b_h, d_b_c = decoder_model.predict([next_token]+[f_h, f_c, b_h, b_c])
         token_idx = np.argmax(decoder_out[0, -1, :])
         
         if token_idx == s_tokenizer.word_index['eostok']:
@@ -209,13 +244,13 @@ def generate_summary(input_seq):
         
         next_token = np.zeros((1, 1))
         next_token[0, 0] = token_idx
-        h, c = state_h, state_c
+        f_h, f_c, b_h, b_c = d_f_h, d_f_c, d_b_h, d_b_c
         count += 1
         
     return output_seq
 
 hyps = []
-with open(f'./{embedding_type}_result.csv', 'w') as f:
+with open(f'./{embedding_type}_bidirectional_result.csv', 'w') as f:
     writer = csv.writer(f)
     writer.writerow(['Article', 'Original Summary', 'Model Output'])
     for i in range(len(test_x)):

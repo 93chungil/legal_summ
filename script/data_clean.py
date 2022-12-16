@@ -1,9 +1,11 @@
 import os
 from collections import defaultdict
-from nltk.corpus import stopwords
+import nltk
 import pandas as pd
 import re
 
+nltk.download('stopwords')
+from nltk.corpus import stopwords
 
 corpus_dir = os.path.join(os.path.dirname(os.getcwd()), 'corpus')
 full_text_dir = os.path.join(corpus_dir, 'fulltext')
