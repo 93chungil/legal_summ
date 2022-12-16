@@ -128,6 +128,7 @@ for word, i in s_tokenizer.word_index.items():
     if i < s_max_features and vec is not None:
         s_embed[i] = vec
 
+# Building Model
 # START: COPIED FROM https://blog.paperspace.com/implement-seq2seq-for-text-summarization-keras/
 filters = 64
 kernel_size = 5
@@ -188,6 +189,7 @@ model.fit([train_x, train_y[:, :-1]],
 
 model.save(f'./{embedding_type}_model_bidirectional')
 
+# Inference
 # Encode the input sequence to get the feature vector
 encoder_model = Model(inputs=encoder_inputs,outputs=encoder_states1)
 

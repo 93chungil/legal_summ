@@ -131,6 +131,7 @@ for word, i in s_tokenizer.word_index.items():
 
 
 # START: COPIED FROM https://blog.paperspace.com/implement-seq2seq-for-text-summarization-keras/
+# Building Model
 
 filters = 64
 kernel_size = 5
@@ -174,6 +175,8 @@ model.fit([train_x, train_y[:, :-1]],
 model.save(f'./{embedding_type}_model')
 
 model = load_model('./glove_model')
+
+# Inference
 
 enc_model = Model(inputs=encoder_inputs, outputs=[state_h, state_c])
 
